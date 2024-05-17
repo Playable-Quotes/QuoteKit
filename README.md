@@ -2,6 +2,17 @@
 
 This project aims to provide a low-level API for creating and playing back [playable quotes](https://tenmile.quote.games/) that spans several emulated game platforms.
 
+# Usage
+
+*Most* of the scripts in this repository are intended to integrate with already-running native-code emulators using [Frida](https://frida.re/). For browser based emulators, you will generally use our scripts in `<script>` tags. Consult emulator-specific documentation for precise steps.
+
+Typical usage, assuming a hypothetical emulator called `{emu}`:
+
+    $ emu system.img &
+    $ frida -l emu-plumbing.js -l test-feature.js emu
+
+To install frida, you'd typically create a Python virtual environment with [`venv`](https://docs.python.org/3/library/venv.html) and then `pip install frida-tools`.
+
 # Platforms
 
 Here's a list of emulators that we aspire to support very soon:
