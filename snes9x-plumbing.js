@@ -3,18 +3,18 @@ This API is meant to be implemented in an environment like Frida or the browser 
 
 Methods:
     *getDeviceInfo() -> obj containing name, block size, and block count for devices
-    saveResidue() -> ArrayBuffer
-    restoreResidue(buffer)
+    *saveResidue() -> ArrayBuffer
+    *restoreResidue(buffer)
     readBlock(device,index) -> ArrayBuffer
     writeBlock(device,index,buffer)
     resetBlockNotifications()
     applyStimulus(obj)
 Events:
-    main-loop: details nothing
+    *main-loop: details nothing
     frame: visual animation frame, details pixels
     read-block: details device id and block index
     write-block: details device id and block index
-    stimulus: details an environmental stimulus object
+    *stimulus: details an environmental stimulus object
 
 */
 
@@ -49,6 +49,8 @@ Events:
     }
   }
 
+  // save residue ----------------------------------------------
+
   function saveResidue() {
     let retro_serialize_size_addr = DebugSymbol.fromName(
       "retro_serialize_size"
@@ -71,6 +73,8 @@ Events:
     return dataPointer.readByteArray(size);
   }
 
+  // restore residue ----------------------------------------------
+
   function restoreResidue(buffer) {
     let retro_unserialize_addr =
       DebugSymbol.fromName("retro_unserialize").address;
@@ -85,6 +89,8 @@ Events:
     dataPointer.writeByteArray(buffer);
     return retro_unserialize(dataPointer, buffer.byteLength);
   }
+
+  // stimulus ----------------------------------------------
 
   Interceptor.attach(
     DebugSymbol.fromName("input_driver_state_wrapper").address,
@@ -110,12 +116,16 @@ Events:
     }
   );
 
+  // Block Notifications ----------------------------------------------
+
+  // device info ----------------------------------------------
+
   function getDeviceInfo() {
     return {
       ram: {
         name: "RAM",
-        block_size: -1,
-        block_count: -1,
+        block_size: memory_block_size,
+        block_count: num_memory_blocks,
       },
       rom: {
         name: "ROM",
@@ -125,6 +135,8 @@ Events:
     };
   }
 
+  // main loop ----------------------------------------------
+
   const eventTarget = new EventTarget();
 
   const funcAddr = DebugSymbol.fromName("retro_run").address;
@@ -132,11 +144,81 @@ Events:
     eventTarget.dispatchEvent({ type: "main-loop" });
   });
 
+  // reset block notifications ----------------------------------------------
+
+  const RETRO_MEMORY_SYSTEM_RAM = 2;
+  const get_mem_size = new NativeFunction(
+    DebugSymbol.fromName("retro_get_memory_size").address,
+    "size_t",
+    ["int"]
+  );
+  const get_mem_data = new NativeFunction(
+    DebugSymbol.fromName("retro_get_memory_data").address,
+    "pointer",
+    ["int"]
+  );
+
+  const mem_data = get_mem_data(RETRO_MEMORY_SYSTEM_RAM);
+
+  console.log(mem_data);
+
+  const mem_size = get_mem_size(RETRO_MEMORY_SYSTEM_RAM).toNumber();
+
+  console.log(mem_size);
+
+  const memory_block_size = Process.pageSize;
+  const num_memory_blocks = mem_size / memory_block_size;
+  const mem_already_read = new Uint8Array(mem_size);
+  const mem_already_written = new Uint8Array(mem_size);
+
+  const ranges = [{ base: mem_data, size: mem_size }];
+  const eventsToDispatch = [];
+
+  Process.setExceptionHandler(function (details) {
+    if (details.type === "access-violation") {
+      if (details.memory.operation === "read") {
+        const addr = details.memory.address;
+        Memory.protect(addr, 1, "rw-");
+
+        eventsToDispatch.push({
+          type: "read-block",
+          device: "memory",
+          index: Math.floor(addr.sub(mem_data).toInt32() / memory_block_size),
+        });
+        return true;
+      }
+      if (details.memory.operation === "write") {
+        const addr = details.memory.address;
+        Memory.protect(addr, 1, "rw-");
+        eventTarget.dispatchEvent({
+          type: "write-block",
+          device: "memory",
+          index: Math.floor(addr.sub(mem_data).toInt32() / memory_block_size),
+        });
+        return true;
+      }
+    }
+    return false;
+  });
+
+  Memory.protect(mem_data, mem_size, "---");
+
+  function resetMemoryBlockNotifications() {
+    Memory.protect(mem_data, mem_size, "---");
+  }
+
+  function resetBlockNotifications() {
+    resetMemoryBlockNotifications();
+  }
+
   globalThis.QuoteKit = {
     addEventListener: eventTarget.addEventListener.bind(eventTarget),
     removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
     getDeviceInfo,
     saveResidue,
     restoreResidue,
+    resetBlockNotifications,
   };
+
+  console.log("QuoteKit initialized");
 })();
