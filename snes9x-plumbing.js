@@ -116,8 +116,6 @@ Events:
     }
   );
 
-  // Block Notifications ----------------------------------------------
-
   // device info ----------------------------------------------
 
   function getDeviceInfo() {
@@ -159,20 +157,10 @@ Events:
   );
 
   const mem_data = get_mem_data(RETRO_MEMORY_SYSTEM_RAM);
-
-  console.log(mem_data);
-
   const mem_size = get_mem_size(RETRO_MEMORY_SYSTEM_RAM).toNumber();
-
-  console.log(mem_size);
 
   const memory_block_size = Process.pageSize;
   const num_memory_blocks = mem_size / memory_block_size;
-  const mem_already_read = new Uint8Array(mem_size);
-  const mem_already_written = new Uint8Array(mem_size);
-
-  const ranges = [{ base: mem_data, size: mem_size }];
-  const eventsToDispatch = [];
 
   Process.setExceptionHandler(function (details) {
     if (details.type === "access-violation") {
@@ -180,7 +168,7 @@ Events:
         const addr = details.memory.address;
         Memory.protect(addr, 1, "rw-");
 
-        eventsToDispatch.push({
+        eventTarget.dispatchEvent({
           type: "read-block",
           device: "memory",
           index: Math.floor(addr.sub(mem_data).toInt32() / memory_block_size),
