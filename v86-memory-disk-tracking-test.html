@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<title>v86 Plumbing</title>
+<head>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <button class="button" id="pauseBtn" title="Pause Emulation">Pause</button>
+  <button class="button" id="playBtn" title="Resume Emulation">Resume</button>
+  <button class="button" id="resetBtn" title="Reset">Reset</button>
+  <div id="screen_container">
+    <div
+      style="white-space: pre; font: 14px monospace; line-height: 14px"
+    ></div>
+    <canvas style="display: none"></canvas>
+  </div>
+</body>
+
+<script src="./libv86-adam.js"></script>
+<script src="./plumbing-api.js"></script>
+<script>
+  "use strict";
+
+  // -- Emulator --
+
+  let pmemStart, pmemLength;
+
+  const MEM_PAGE_SIZE = 1024 * 4;
+  const allowedMemoryPages = new Set();
+
+  const nativeInstantiate = WebAssembly.instantiate;
+  WebAssembly.instantiate = function instantiate(bufferSource, importObject) {
+    importObject.env.load_ptr = function load_ptr(loc, bytes, offset, ptr) {
+      if (ptr >= pmemStart && ptr < pmemStart + pmemLength) {
+        const page = ((ptr - pmemStart) / MEM_PAGE_SIZE) | 0;
+        if (!allowedMemoryPages.has(page)) {
+          console.log("first entry: ", page);
+          allowedMemoryPages.add(page);
+        }
+      }
+      return ptr;
+    };
+    return nativeInstantiate(bufferSource, importObject);
+  };
+
+  let emulator;
+
+  window.onload = function () {
+    emulator = window.emulator = new V86({
+      //wasm_path: "./v86.wasm",
+      wasm_path:
+        "https://cdn.glitch.global/8d6ef66e-a7cb-4ab8-8a7e-bb43e1b1c6c4/v86-pack.wasm?v=1694042070346",
+      memory_size: 128 * 1024 * 1024,
+      vga_memory_size: 8 * 1024 * 1024,
+      screen_container: document.getElementById("screen_container"),
+      bios: {
+        url: "./seabios-debug.bin",
+      },
+      vga_bios: {
+        url: "./vgabios-debug.bin",
+      },
+      hda: {
+        url: "./barbie.img",
+      },
+      boot_order: 0x312,
+      autostart: true,
+    });
+    emulator.bus.register("emulator-loaded", function () {
+      QuoteKit.setup(emulator);
+    });
+  };
+
+  // --- Buttons ---
+
+  pauseBtn.onclick = async function () {
+    if (emulator.v86.running) {
+      await emulator.stop();
+      pauseBtn.disabled = true;
+      playBtn.disabled = false;
+    }
+  };
+
+  playBtn.onclick = async function () {
+    if (!emulator.v86.running) {
+      await emulator.run();
+      playBtn.disabled = true;
+      pauseBtn.disabled = false;
+    }
+  };
+
+  resetBtn.onclick = function () {
+    QuoteKit.allowedMemoryPages.clear();
+    QuoteKit.allowedDiskPages.clear();
+  };
+</script>
